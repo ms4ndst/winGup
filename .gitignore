@@ -1,0 +1,24 @@
+# Claude Code local settings
+.claude/
+
+# Build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# NuGet
+*.nupkg
+packages/
+
+# Rider / VS
+.idea/
+*.DotSettings.user
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Test results
+TestResults/

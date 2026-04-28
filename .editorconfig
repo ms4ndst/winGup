@@ -1,0 +1,33 @@
+# EditorConfig helps keep our code consistent
+root = true
+
+# All files
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# C# files
+[*.cs]
+dotnet_diagnostic.CA1052.severity = none
+dotnet_diagnostic.CA1812.severity = none
+dotnet_diagnostic.CA1815.severity = none
+dotnet_diagnostic.CA1822.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+# XML docs required for public APIs
+dotnet_diagnostic.SA1600.severity = error
+dotnet_diagnostic.SA1601.severity = error
+dotnet_diagnostic.SA1602.severity = error
+
+# Naming conventions
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = suggestion
+dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case.style = camel_case
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.camel_case.capitalization = camel_case

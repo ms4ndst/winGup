@@ -1,0 +1,10 @@
+<Project>
+  <ItemGroup>
+    <PackageReference Include="Meziantou.Analyzer" Version="2.0.163">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildTransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Roslynator.Analyzers" Version="4.12.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildTransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
