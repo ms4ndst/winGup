@@ -1,30 +1,32 @@
 using System.Windows.Forms;
 using Microsoft.Extensions.Logging;
-using WinGup.Models;
+using Microsoft.Win32;
 
 namespace WinGup;
 
 /// <summary>
-/// Settings window ported from Python ui_component.py SettingsDialog
-/// Uses WinForms for Windows-native settings UI
+/// Settings window for configuring Winget Updater.
 /// </summary>
 public class SettingsWindow : Form
 {
+    private const string StartupRegKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string StartupValueName = "winGup";
+
     private readonly IIpcClient _ipcClient;
     private readonly ILogger _logger;
 
-    // Controls
     private DateTimePicker _morningTimePicker = null!;
     private DateTimePicker _afternoonTimePicker = null!;
     private CheckBox _notifyCheckBox = null!;
     private CheckBox _autoCheckCheckBox = null!;
     private CheckBox _pinnedCheckBox = null!;
     private CheckBox _unknownVersionsCheckBox = null!;
+    private CheckBox _startupCheckBox = null!;
     private Button _saveButton = null!;
     private Button _cancelButton = null!;
 
     /// <summary>
-    /// Creates a new SettingsWindow
+    /// Creates a new SettingsWindow.
     /// </summary>
     /// <param name="ipcClient">IPC client for service communication</param>
     /// <param name="logger">Logger instance</param>
@@ -34,13 +36,13 @@ public class SettingsWindow : Form
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         InitializeComponent();
-        LoadSettings();
+        _ = LoadSettingsAsync();
     }
 
     private void InitializeComponent()
     {
         Text = "Winget Updater Settings";
-        Size = new System.Drawing.Size(400, 300);
+        Size = new System.Drawing.Size(400, 330);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -48,13 +50,12 @@ public class SettingsWindow : Form
 
         var y = 20;
         const int labelWidth = 150;
-        const int controlX = 160;
+        const int controlX = 165;
 
-        // Morning check time
         var morningLabel = new Label
         {
             Text = "Morning Check Time:",
-            Location = new System.Drawing.Point(20, y),
+            Location = new System.Drawing.Point(20, y + 3),
             Size = new System.Drawing.Size(labelWidth, 20)
         };
         _morningTimePicker = new DateTimePicker
@@ -66,13 +67,12 @@ public class SettingsWindow : Form
         };
         Controls.Add(morningLabel);
         Controls.Add(_morningTimePicker);
-        y += 30;
+        y += 32;
 
-        // Afternoon check time
         var afternoonLabel = new Label
         {
             Text = "Afternoon Check Time:",
-            Location = new System.Drawing.Point(20, y),
+            Location = new System.Drawing.Point(20, y + 3),
             Size = new System.Drawing.Size(labelWidth, 20)
         };
         _afternoonTimePicker = new DateTimePicker
@@ -84,49 +84,54 @@ public class SettingsWindow : Form
         };
         Controls.Add(afternoonLabel);
         Controls.Add(_afternoonTimePicker);
-        y += 30;
+        y += 32;
 
-        // Notify on updates
         _notifyCheckBox = new CheckBox
         {
             Text = "Notify on Updates",
             Location = new System.Drawing.Point(controlX, y),
-            Size = new System.Drawing.Size(150, 20)
+            Size = new System.Drawing.Size(180, 20)
         };
         Controls.Add(_notifyCheckBox);
-        y += 25;
+        y += 26;
 
-        // Auto check
         _autoCheckCheckBox = new CheckBox
         {
             Text = "Auto Check for Updates",
             Location = new System.Drawing.Point(controlX, y),
-            Size = new System.Drawing.Size(150, 20)
+            Size = new System.Drawing.Size(180, 20)
         };
         Controls.Add(_autoCheckCheckBox);
-        y += 25;
+        y += 26;
 
-        // Include pinned
         _pinnedCheckBox = new CheckBox
         {
             Text = "Include Pinned Updates",
             Location = new System.Drawing.Point(controlX, y),
-            Size = new System.Drawing.Size(150, 20)
+            Size = new System.Drawing.Size(180, 20)
         };
         Controls.Add(_pinnedCheckBox);
-        y += 25;
+        y += 26;
 
-        // Include unknown versions
         _unknownVersionsCheckBox = new CheckBox
         {
             Text = "Include Unknown Versions",
             Location = new System.Drawing.Point(controlX, y),
-            Size = new System.Drawing.Size(150, 20)
+            Size = new System.Drawing.Size(180, 20)
         };
         Controls.Add(_unknownVersionsCheckBox);
-        y += 40;
+        y += 26;
 
-        // Buttons
+        _startupCheckBox = new CheckBox
+        {
+            Text = "Run on Windows Startup",
+            Location = new System.Drawing.Point(controlX, y),
+            Size = new System.Drawing.Size(180, 20),
+            Checked = GetStartupEnabled()
+        };
+        Controls.Add(_startupCheckBox);
+        y += 36;
+
         _saveButton = new Button
         {
             Text = "Save",
@@ -151,45 +156,52 @@ public class SettingsWindow : Form
         CancelButton = _cancelButton;
     }
 
-    private void LoadSettings()
+    private async Task LoadSettingsAsync()
     {
-        _ = Task.Run(async () =>
+        try
         {
-            try
+            var response = await _ipcClient.SendMessageAsync("get_settings").ConfigureAwait(false);
+            if (string.IsNullOrEmpty(response)) return;
+
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            using var doc = System.Text.Json.JsonDocument.Parse(response);
+            var root = doc.RootElement;
+
+            InvokeOnUiThread(() =>
             {
-                var response = await _ipcClient.SendMessageAsync("get_config");
-                if (response is not null)
-                {
-                    InvokeOnUiThread(() =>
-                    {
-                        // Parse config from response and set controls
-                        // Simplified - full implementation would parse JSON
-                        _morningTimePicker.Value = DateTime.Today.AddHours(8);
-                        _afternoonTimePicker.Value = DateTime.Today.AddHours(16);
-                        _notifyCheckBox.Checked = true;
-                        _autoCheckCheckBox.Checked = true;
-                        _pinnedCheckBox.Checked = false;
-                        _unknownVersionsCheckBox.Checked = false;
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to load settings");
-            }
-        });
+                if (root.TryGetProperty("morning_check", out var mc) && mc.GetString() is { } mt)
+                    if (TimeOnly.TryParse(mt, out var t))
+                        _morningTimePicker.Value = DateTime.Today.Add(t.ToTimeSpan());
+
+                if (root.TryGetProperty("afternoon_check", out var ac) && ac.GetString() is { } at)
+                    if (TimeOnly.TryParse(at, out var t))
+                        _afternoonTimePicker.Value = DateTime.Today.Add(t.ToTimeSpan());
+
+                if (root.TryGetProperty("notify_on_updates", out var n))
+                    _notifyCheckBox.Checked = n.GetBoolean();
+
+                if (root.TryGetProperty("auto_check", out var a))
+                    _autoCheckCheckBox.Checked = a.GetBoolean();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load settings");
+        }
     }
 
     private void SaveButton_Click(object? sender, EventArgs e)
     {
+        SetStartupEnabled(_startupCheckBox.Checked);
+
         _ = Task.Run(async () =>
         {
             try
             {
                 var config = new
                 {
-                    morning_check_time = _morningTimePicker.Value.ToString("HH:mm"),
-                    afternoon_check_time = _afternoonTimePicker.Value.ToString("HH:mm"),
+                    morning_check = _morningTimePicker.Value.ToString("HH:mm"),
+                    afternoon_check = _afternoonTimePicker.Value.ToString("HH:mm"),
                     notify_on_updates = _notifyCheckBox.Checked,
                     auto_check = _autoCheckCheckBox.Checked,
                     include_pinned_updates = _pinnedCheckBox.Checked,
@@ -197,11 +209,10 @@ public class SettingsWindow : Form
                 };
 
                 var json = System.Text.Json.JsonSerializer.Serialize(config);
-                await _ipcClient.SendMessageAsync("save_settings", json);
+                await _ipcClient.SendMessageAsync("save_settings", json).ConfigureAwait(false);
                 _logger.LogInformation("Settings saved");
 
-                // Close the window on the UI thread
-                InvokeOnUiThread(() => Close());
+                InvokeOnUiThread(Close);
             }
             catch (Exception ex)
             {
@@ -212,16 +223,34 @@ public class SettingsWindow : Form
         });
     }
 
-    internal static void InvokeOnUiThread(Action action)
+    private static bool GetStartupEnabled()
     {
-        if (Application.OpenForms.Count > 0)
+        using var key = Registry.CurrentUser.OpenSubKey(StartupRegKey, writable: false);
+        return key?.GetValue(StartupValueName) is not null;
+    }
+
+    private static void SetStartupEnabled(bool enabled)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(StartupRegKey, writable: true);
+        if (key is null) return;
+
+        if (enabled)
         {
-            var form = Application.OpenForms[0]!;
-            form.Invoke(action);
+            var exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+            key.SetValue(StartupValueName, $"\"{exePath}\" --standalone");
         }
         else
         {
-            action();
+            key.DeleteValue(StartupValueName, throwOnMissingValue: false);
         }
+    }
+
+    private void InvokeOnUiThread(Action action)
+    {
+        if (IsDisposed) return;
+        if (InvokeRequired)
+            Invoke(action);
+        else
+            action();
     }
 }
