@@ -22,3 +22,7 @@ desktop.ini
 
 # Test results
 TestResults/
+
+# Installer build artefacts
+publish/
+dist/
