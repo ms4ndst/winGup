@@ -154,6 +154,10 @@ public class SettingsWindow : Form
 
         AcceptButton = _saveButton;
         CancelButton = _cancelButton;
+
+        // Apply Catppuccin Mocha theme
+        CatppuccinTheme.ApplyToForm(this);
+        CatppuccinTheme.StyleButton(_saveButton, isPrimary: true);
     }
 
     private async Task LoadSettingsAsync()

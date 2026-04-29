@@ -49,6 +49,18 @@ public interface IUpdateChecker : IAsyncDisposable
     /// </summary>
     Task TogglePinAsync(IEnumerable<string> packageIds, CancellationToken cancellationToken = default);
 
+    /// <summary>Gets a value indicating whether a package installation is currently in progress.</summary>
+    bool IsInstalling { get; }
+
+    /// <summary>
+    /// Gets the list of package IDs that failed during the last install run.
+    /// Returns null while an install is in progress or before any install has run.
+    /// </summary>
+    IReadOnlyList<string>? LastInstallFailed { get; }
+
+    /// <summary>Drains and returns all output lines buffered since the last call.</summary>
+    IReadOnlyList<string> DrainInstallOutput();
+
     /// <summary>
     /// Upgrades the specified packages and refreshes the cached update list.
     /// </summary>

@@ -11,6 +11,7 @@ namespace WinGup;
 public class UpdateListWindow : Form
 {
     private DataGridView _grid = null!;
+    private RichTextBox _outputBox = null!;
     private Button _refreshButton = null!;
     private Button _updateButton = null!;
     private Button _updateAllButton = null!;
@@ -49,16 +50,82 @@ public class UpdateListWindow : Form
     private void InitializeComponent()
     {
         Text = "Available Updates";
-        Size = new System.Drawing.Size(800, 500);
+        Size = new System.Drawing.Size(800, 620);
+        MinimumSize = new System.Drawing.Size(600, 420);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.Sizable;
 
-        // Grid
+        // --- Button panel docked at the bottom ---
+        var buttonPanel = new Panel { Dock = DockStyle.Bottom, Height = 36 };
+
+        _refreshButton = new Button
+        {
+            Text = "Refresh",
+            Location = new System.Drawing.Point(10, 6),
+            Size = new System.Drawing.Size(75, 23)
+        };
+        _refreshButton.Click += RefreshButton_Click;
+
+        _updateButton = new Button
+        {
+            Text = "Update Selected",
+            Location = new System.Drawing.Point(95, 6),
+            Size = new System.Drawing.Size(110, 23)
+        };
+        _updateButton.Click += UpdateButton_Click;
+
+        _updateAllButton = new Button
+        {
+            Text = "Update All",
+            Location = new System.Drawing.Point(215, 6),
+            Size = new System.Drawing.Size(85, 23)
+        };
+        _updateAllButton.Click += UpdateAllButton_Click;
+
+        _pinButton = new Button
+        {
+            Text = "Toggle Pin",
+            Location = new System.Drawing.Point(310, 6),
+            Size = new System.Drawing.Size(100, 23)
+        };
+        _pinButton.Click += (_, _) => TogglePin();
+
+        _statusLabel = new Label
+        {
+            Text = "",
+            Location = new System.Drawing.Point(420, 9),
+            Size = new System.Drawing.Size(265, 18),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+
+        _closeButton = new Button
+        {
+            Text = "Close",
+            Location = new System.Drawing.Point(705, 6),
+            Size = new System.Drawing.Size(75, 23),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        _closeButton.Click += (_, _) => Close();
+
+        buttonPanel.Controls.AddRange(new Control[]
+            { _refreshButton, _updateButton, _updateAllButton, _pinButton, _statusLabel, _closeButton });
+
+        Controls.Add(buttonPanel);
+
+        // --- SplitContainer fills the remaining space ---
+        var split = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal,
+            SplitterDistance = 360,
+            Panel1MinSize = 80,
+            Panel2MinSize = 60,
+        };
+
+        // Updates grid in top panel
         _grid = new DataGridView
         {
-            Location = new System.Drawing.Point(10, 10),
-            Size = new System.Drawing.Size(760, 380),
-            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            Dock = DockStyle.Fill,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
             ReadOnly = true,
             AllowUserToAddRows = false,
@@ -73,75 +140,42 @@ public class UpdateListWindow : Form
         _grid.Columns.Add("Source", "Source");
         _grid.Columns.Add("IsPinned", "Pinned");
 
-        // Add context menu for pin/unpin
         var contextMenu = new ContextMenuStrip();
-        var pinItem = new ToolStripMenuItem("Pin Update", null, (_, _) => TogglePin());
-        var unpinItem = new ToolStripMenuItem("Unpin Update", null, (_, _) => TogglePin());
-        contextMenu.Items.Add(pinItem);
-        contextMenu.Items.Add(unpinItem);
+        contextMenu.Items.Add(new ToolStripMenuItem("Pin Update",   null, (_, _) => TogglePin()));
+        contextMenu.Items.Add(new ToolStripMenuItem("Unpin Update", null, (_, _) => TogglePin()));
+        CatppuccinTheme.StyleContextMenu(contextMenu);
         _grid.ContextMenuStrip = contextMenu;
 
-        Controls.Add(_grid);
+        split.Panel1.Controls.Add(_grid);
 
-        // Buttons
-        var buttonY = 400;
-
-        _refreshButton = new Button
+        // Terminal output in bottom panel
+        var outputLabel = new Label
         {
-            Text = "Refresh",
-            Location = new System.Drawing.Point(10, buttonY),
-            Size = new System.Drawing.Size(75, 23)
-        };
-        _refreshButton.Click += RefreshButton_Click;
-
-        _updateButton = new Button
-        {
-            Text = "Update Selected",
-            Location = new System.Drawing.Point(95, buttonY),
-            Size = new System.Drawing.Size(110, 23)
-        };
-        _updateButton.Click += UpdateButton_Click;
-
-        _updateAllButton = new Button
-        {
-            Text = "Update All",
-            Location = new System.Drawing.Point(215, buttonY),
-            Size = new System.Drawing.Size(85, 23)
-        };
-        _updateAllButton.Click += UpdateAllButton_Click;
-
-        _pinButton = new Button
-        {
-            Text = "Toggle Pin",
-            Location = new System.Drawing.Point(310, buttonY),
-            Size = new System.Drawing.Size(100, 23)
-        };
-        _pinButton.Click += (_, _) => TogglePin();
-
-        _closeButton = new Button
-        {
-            Text = "Close",
-            Location = new System.Drawing.Point(695, buttonY),
-            Size = new System.Drawing.Size(75, 23),
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
-        };
-        _closeButton.Click += (_, _) => Close();
-
-        _statusLabel = new Label
-        {
-            Text = "",
-            Location = new System.Drawing.Point(420, buttonY + 3),
-            Size = new System.Drawing.Size(265, 18),
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
-            ForeColor = System.Drawing.Color.Gray
+            Text = "Output",
+            Dock = DockStyle.Top,
+            Height = 20,
+            Font = new System.Drawing.Font("Segoe UI", 9f, System.Drawing.FontStyle.Bold),
+            Padding = new Padding(4, 4, 0, 0)
         };
 
-        Controls.Add(_refreshButton);
-        Controls.Add(_updateButton);
-        Controls.Add(_updateAllButton);
-        Controls.Add(_pinButton);
-        Controls.Add(_statusLabel);
-        Controls.Add(_closeButton);
+        _outputBox = new RichTextBox
+        {
+            Dock = DockStyle.Fill,
+            ReadOnly = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical,
+            WordWrap = false,
+        };
+
+        split.Panel2.Controls.Add(_outputBox);
+        split.Panel2.Controls.Add(outputLabel);
+
+        Controls.Add(split);
+
+        // Apply Catppuccin Mocha theme
+        CatppuccinTheme.ApplyToForm(this);
+        CatppuccinTheme.StyleButton(_updateButton,    isPrimary: true);
+        CatppuccinTheme.StyleButton(_updateAllButton, isPrimary: true);
+        CatppuccinTheme.StyleOutputBox(_outputBox);
     }
 
     private void PopulateGrid()
@@ -232,9 +266,7 @@ public class UpdateListWindow : Form
 
         var selectedIds = new List<string>();
         foreach (DataGridViewRow row in _grid.SelectedRows)
-        {
             selectedIds.Add(row.Cells[0].Value?.ToString() ?? "");
-        }
 
         _ = Task.Run(async () =>
         {
@@ -266,9 +298,7 @@ public class UpdateListWindow : Form
     private void RefreshButton_Click(object? sender, EventArgs e)
     {
         if (_ipcClient is not null)
-        {
             _ = LoadUpdatesAsync();
-        }
     }
 
     private void UpdateAllButton_Click(object? sender, EventArgs e)
@@ -293,63 +323,7 @@ public class UpdateListWindow : Form
 
         if (result != DialogResult.Yes) return;
 
-        _updateAllButton.Enabled = false;
-        _updateButton.Enabled = false;
-        InvokeOnUiThread(() => _statusLabel.Text = "Installing...");
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                if (_ipcClient is null) return;
-
-                var data = System.Text.Json.JsonSerializer.Serialize(unpinnedIds);
-                var response = await _ipcClient.SendMessageAsync("update_packages", data);
-
-                if (!string.IsNullOrEmpty(response))
-                {
-                    var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    using var doc = System.Text.Json.JsonDocument.Parse(response);
-                    var root = doc.RootElement;
-
-                    var failed = new List<string>();
-                    if (root.TryGetProperty("failed", out var failedEl))
-                        foreach (var f in failedEl.EnumerateArray())
-                            failed.Add(f.GetString() ?? "");
-
-                    if (root.TryGetProperty("updates", out var updatesEl))
-                    {
-                        var updates = System.Text.Json.JsonSerializer.Deserialize<List<UpdateInfo>>(
-                            updatesEl.GetRawText(), options) ?? new();
-                        InvokeOnUiThread(() =>
-                        {
-                            _updates = updates;
-                            PopulateGrid();
-                            _statusLabel.Text = failed.Count > 0
-                                ? $"{failed.Count} package(s) failed."
-                                : "All updates installed.";
-                        });
-                    }
-
-                    if (failed.Count > 0)
-                        MessageBox.Show($"Failed to install: {string.Join(", ", failed)}", "Install Error",
-                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Failed to update packages: " + ex.Message, "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                InvokeOnUiThread(() =>
-                {
-                    _updateAllButton.Enabled = _updates.Count > 0;
-                    _updateButton.Enabled = _updates.Count > 0;
-                });
-            }
-        });
+        _ = Task.Run(async () => await ExecuteInstallAsync(unpinnedIds).ConfigureAwait(false));
     }
 
     private void UpdateButton_Click(object? sender, EventArgs e)
@@ -363,9 +337,7 @@ public class UpdateListWindow : Form
 
         var selectedIds = new List<string>();
         foreach (DataGridViewRow row in _grid.SelectedRows)
-        {
             selectedIds.Add(row.Cells[0].Value?.ToString() ?? "");
-        }
 
         var result = MessageBox.Show(
             $"Update {selectedIds.Count} package(s)?",
@@ -374,60 +346,101 @@ public class UpdateListWindow : Form
             MessageBoxIcon.Question);
 
         if (result == DialogResult.Yes)
+            _ = Task.Run(async () => await ExecuteInstallAsync(selectedIds).ConfigureAwait(false));
+    }
+
+    private async Task ExecuteInstallAsync(List<string> packageIds)
+    {
+        if (_ipcClient is null) return;
+
+        InvokeOnUiThread(() =>
         {
             _updateButton.Enabled = false;
-            InvokeOnUiThread(() => _statusLabel.Text = "Installing...");
+            _updateAllButton.Enabled = false;
+            _statusLabel.Text = "Installing...";
+            _outputBox.Clear();
+        });
 
-            _ = Task.Run(async () =>
+        await _ipcClient.SendMessageAsync("update_packages",
+            System.Text.Json.JsonSerializer.Serialize(packageIds)).ConfigureAwait(false);
+
+        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        List<string> failed = new();
+
+        try
+        {
+            while (true)
             {
-                try
+                await Task.Delay(500).ConfigureAwait(false);
+
+                // Drain output lines and append to terminal
+                var outputJson = await _ipcClient.SendMessageAsync("get_install_output").ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(outputJson))
                 {
-                    if (_ipcClient is null) return;
-
-                    var data = System.Text.Json.JsonSerializer.Serialize(selectedIds);
-                    var response = await _ipcClient.SendMessageAsync("update_packages", data);
-
-                    if (!string.IsNullOrEmpty(response))
+                    try
                     {
-                        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                        using var doc = System.Text.Json.JsonDocument.Parse(response);
-                        var root = doc.RootElement;
-
-                        var failed = new List<string>();
-                        if (root.TryGetProperty("failed", out var failedEl))
-                            foreach (var f in failedEl.EnumerateArray())
-                                failed.Add(f.GetString() ?? "");
-
-                        if (root.TryGetProperty("updates", out var updatesEl))
-                        {
-                            var updates = System.Text.Json.JsonSerializer.Deserialize<List<UpdateInfo>>(
-                                updatesEl.GetRawText(), options) ?? new();
-                            InvokeOnUiThread(() =>
-                            {
-                                _updates = updates;
-                                PopulateGrid();
-                                _statusLabel.Text = failed.Count > 0
-                                    ? $"{failed.Count} package(s) failed to install."
-                                    : "Installation complete.";
-                            });
-                        }
-
-                        if (failed.Count > 0)
-                            MessageBox.Show($"Failed to install: {string.Join(", ", failed)}", "Install Error",
-                                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        var lines = System.Text.Json.JsonSerializer.Deserialize<List<string>>(outputJson);
+                        if (lines?.Count > 0)
+                            InvokeOnUiThread(() => AppendOutput(lines));
                     }
+                    catch { /* ignore parse errors */ }
                 }
-                catch (Exception ex)
+
+                // Check completion
+                var statusJson = await _ipcClient.SendMessageAsync("get_install_status").ConfigureAwait(false);
+                if (statusJson is null) break;
+
+                using var doc = System.Text.Json.JsonDocument.Parse(statusJson);
+                var root = doc.RootElement;
+
+                if (!root.GetProperty("is_installing").GetBoolean())
                 {
-                    MessageBox.Show("Failed to update packages: " + ex.Message, "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    if (root.TryGetProperty("failed", out var failedEl))
+                        foreach (var f in failedEl.EnumerateArray())
+                            failed.Add(f.GetString() ?? "");
+
+                    List<UpdateInfo> updates = new();
+                    if (root.TryGetProperty("updates", out var updatesEl))
+                        updates = System.Text.Json.JsonSerializer.Deserialize<List<UpdateInfo>>(
+                            updatesEl.GetRawText(), options) ?? new();
+
+                    InvokeOnUiThread(() =>
+                    {
+                        _updates = updates;
+                        PopulateGrid();
+                        _statusLabel.Text = failed.Count > 0
+                            ? $"{failed.Count} package(s) failed to install."
+                            : "Installation complete.";
+                    });
+                    break;
                 }
-                finally
-                {
-                    InvokeOnUiThread(() => _updateButton.Enabled = _updates.Count > 0);
-                }
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Failed to update packages: " + ex.Message, "Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            InvokeOnUiThread(() =>
+            {
+                _updateButton.Enabled = _updates.Count > 0;
+                _updateAllButton.Enabled = _updates.Count > 0;
             });
         }
+
+        if (failed.Count > 0)
+            MessageBox.Show($"Failed to install: {string.Join(", ", failed)}", "Install Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+
+    private void AppendOutput(List<string> lines)
+    {
+        if (IsDisposed || _outputBox.IsDisposed) return;
+        foreach (var line in lines)
+            _outputBox.AppendText(line + Environment.NewLine);
+        _outputBox.ScrollToCaret();
     }
 
     private void InvokeOnUiThread(Action action)

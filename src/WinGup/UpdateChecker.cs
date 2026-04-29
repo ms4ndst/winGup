@@ -20,9 +20,14 @@ public partial class UpdateChecker : IUpdateChecker
     private readonly IConfigManager _configManager;
     private readonly List<UpdateInfo> _availableUpdates = new();
     private readonly HashSet<string> _pinnedPackages = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _installOutput = new();
+    private static readonly System.Text.RegularExpressions.Regex _ansiPattern =
+        new(@"\x1B\[[0-9;]*[a-zA-Z]", System.Text.RegularExpressions.RegexOptions.Compiled);
     private int _updateCount;
     private DateTime? _lastCheckTime;
     private bool _isChecking;
+    private bool _isInstalling;
+    private IReadOnlyList<string>? _lastInstallFailed;
     private bool _disposed;
     private bool _jsonSupported = true;
 
@@ -42,6 +47,21 @@ public partial class UpdateChecker : IUpdateChecker
 
     /// <inheritdoc/>
     public bool IsChecking => _isChecking;
+
+    /// <inheritdoc/>
+    public bool IsInstalling => _isInstalling;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string>? LastInstallFailed => _lastInstallFailed;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> DrainInstallOutput()
+    {
+        var lines = new List<string>();
+        while (_installOutput.TryDequeue(out var line))
+            lines.Add(line);
+        return lines;
+    }
 
     /// <inheritdoc/>
     public int UpdateCount => _updateCount;
@@ -472,11 +492,17 @@ public partial class UpdateChecker : IUpdateChecker
     /// <inheritdoc/>
     public async Task<IReadOnlyList<string>> UpdatePackagesAsync(IEnumerable<string> packageIds, CancellationToken cancellationToken = default)
     {
+        _isInstalling = true;
+        _lastInstallFailed = null;
+        while (_installOutput.TryDequeue(out _)) { }
+
         var failed = new List<string>();
 
         foreach (var id in packageIds)
         {
             if (string.IsNullOrEmpty(id)) continue;
+
+            _installOutput.Enqueue($"--- Installing {id} ---");
 
             var psi = new ProcessStartInfo
             {
@@ -490,27 +516,48 @@ public partial class UpdateChecker : IUpdateChecker
 
             try
             {
-                using var process = new Process { StartInfo = psi };
+                using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+                process.OutputDataReceived += (_, e) =>
+                {
+                    if (e.Data is not null)
+                        _installOutput.Enqueue(_ansiPattern.Replace(e.Data.Replace("\r", ""), ""));
+                };
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data is not null)
+                        _installOutput.Enqueue(_ansiPattern.Replace(e.Data.Replace("\r", ""), ""));
+                };
+
                 process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
                 await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
                 if (process.ExitCode == 0)
+                {
                     _logger.LogInformation("Upgraded {Id}", id);
+                    _installOutput.Enqueue($"--- {id}: OK ---");
+                }
                 else
                 {
                     _logger.LogWarning("winget upgrade failed for {Id} (exit {Code})", id, process.ExitCode);
+                    _installOutput.Enqueue($"--- {id}: FAILED (exit {process.ExitCode}) ---");
                     failed.Add(id);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error upgrading {Id}", id);
+                _installOutput.Enqueue($"--- {id}: ERROR: {ex.Message} ---");
                 failed.Add(id);
             }
         }
 
         await CheckUpdatesAsync(force: true, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return failed.AsReadOnly();
+
+        _lastInstallFailed = failed.AsReadOnly();
+        _isInstalling = false;
+        return _lastInstallFailed;
     }
 
     /// <inheritdoc/>

@@ -123,6 +123,8 @@ public partial class WingetUpdaterService : BackgroundService
         _ipcServer.RegisterHandler("get_settings", HandleGetSettings);
         _ipcServer.RegisterHandler("toggle_pin", HandleTogglePin);
         _ipcServer.RegisterHandler("update_packages", HandleUpdatePackages);
+        _ipcServer.RegisterHandler("get_install_output", _ => HandleGetInstallOutput());
+        _ipcServer.RegisterHandler("get_install_status", _ => HandleGetInstallStatus());
     }
 
     private string? HandleGetStatus(string? data)
@@ -214,23 +216,38 @@ public partial class WingetUpdaterService : BackgroundService
     {
         if (string.IsNullOrEmpty(data)) return null;
 
-        try
+        var ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(data) ?? new();
+        _ = Task.Run(async () =>
         {
-            var ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(data) ?? new();
-            var failed = _updateChecker.UpdatePackagesAsync(ids).GetAwaiter().GetResult();
-            var result = new
+            try
             {
-                success = true,
-                failed = failed,
-                updates = _updateChecker.GetCachedUpdates()
-            };
-            return System.Text.Json.JsonSerializer.Serialize(result);
-        }
-        catch (Exception ex)
+                await _updateChecker.UpdatePackagesAsync(ids).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating packages");
+            }
+        });
+        return System.Text.Json.JsonSerializer.Serialize(new { started = true });
+    }
+
+    private string? HandleGetInstallOutput()
+    {
+        var lines = _updateChecker.DrainInstallOutput();
+        return System.Text.Json.JsonSerializer.Serialize(lines);
+    }
+
+    private string? HandleGetInstallStatus()
+    {
+        if (_updateChecker.IsInstalling)
+            return System.Text.Json.JsonSerializer.Serialize(new { is_installing = true });
+
+        return System.Text.Json.JsonSerializer.Serialize(new
         {
-            _logger.LogError(ex, "Error updating packages");
-            return System.Text.Json.JsonSerializer.Serialize(new { success = false, error = ex.Message });
-        }
+            is_installing = false,
+            failed = _updateChecker.LastInstallFailed ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            updates = _updateChecker.GetCachedUpdates()
+        });
     }
 
     private string? HandleTogglePin(string? data)

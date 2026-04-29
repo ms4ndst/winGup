@@ -4,7 +4,7 @@ A .NET 8 WinForms system tray app that monitors `winget` for available package u
 
 ## Features
 
-- **System tray icon** — green (no updates) or red with count (updates available)
+- **System tray icon** — Catppuccin Green (no updates) or Red with count (updates available)
 - **Update list window** — shows all available updates with name, current and available version, source, and pin status
 - **Update Selected** — installs chosen packages
 - **Update All** — installs all unpinned packages in one go
@@ -26,6 +26,7 @@ src/WinGup/
 ├── UpdateCountChangedEventArgs.cs  # EventArgs for UpdateCountChanged event
 ├── SettingsWindow.cs               # Settings editor
 ├── WindowManager.cs                # Opens / reloads windows
+├── CatppuccinTheme.cs              # Catppuccin Mocha design system — colors, form/control helpers
 ├── IpcServer.cs                    # Named pipe server
 ├── IpcClient.cs                    # Named pipe client (message-mode, streamed read)
 ├── IIpcClient.cs                   # IPC client interface
@@ -81,6 +82,23 @@ auto_check = true
 include_pinned_updates = false
 include_unknown_versions = false
 ```
+
+## UI Theme
+
+winGup uses the [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) color palette. All surfaces, text, interactive states, and the tray icon are styled through `CatppuccinTheme.cs`:
+
+| Role | Color | Hex |
+|---|---|---|
+| Background | Base | `#1e1e2e` |
+| Panels / modals | Mantle | `#181825` |
+| Terminal output | Crust | `#11111b` |
+| Primary action | Mauve | `#cba6f7` |
+| Body text | Text | `#cdd6f4` |
+| Muted text | Subtext1 | `#bac2de` |
+| No-updates icon | Green | `#a6e3a1` |
+| Updates-available icon | Red | `#f38ba8` |
+
+The title bar is switched to dark mode via `DwmSetWindowAttribute` on Windows 10 20H1+ and Windows 11.
 
 ## Requirements
 
