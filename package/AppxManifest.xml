@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <!--
+    Publisher must match the CN of the signing certificate.
+    build-installer.ps1 creates/reuses a self-signed cert with Subject = "CN=winGup Dev".
+    Version is substituted at build time (1.0.0.0 → X.Y.Z.0).
+  -->
+  <Identity
+    Name="MagnusSandstrom.winGup"
+    Publisher="CN=winGup Dev"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64"/>
+
+  <Properties>
+    <DisplayName>winGup</DisplayName>
+    <PublisherDisplayName>Magnus Sandstrom</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!-- Windows 10 1809 (17763) — matches TargetPlatformVersion in WinGup.csproj -->
+    <TargetDeviceFamily
+      Name="Windows.Desktop"
+      MinVersion="10.0.17763.0"
+      MaxVersionTested="10.0.26100.0"/>
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US"/>
+  </Resources>
+
+  <Applications>
+    <Application
+      Id="winGup"
+      Executable="winGup.exe"
+      EntryPoint="Windows.FullTrustApplication">
+
+      <uap:VisualElements
+        DisplayName="winGup"
+        Description="Winget package update monitor"
+        BackgroundColor="#1e1e2e"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"/>
+      </uap:VisualElements>
+
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Required to run as a full-trust Win32 application -->
+    <rescap:Capability Name="runFullTrust"/>
+    <!-- Named pipe IPC between service and tray UI -->
+    <Capability Name="privateNetworkClientServer"/>
+  </Capabilities>
+
+</Package>
+
