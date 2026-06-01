@@ -24,7 +24,7 @@
     .\build-installer.ps1 -Version 1.2.0
 #>
 param(
-    [string]$Version = "1.0.0"
+    [string]$Version = "1.0.4"
 )
 
 Set-StrictMode -Version Latest
@@ -157,10 +157,21 @@ Set-Content (Join-Path $PackageDir "AppxManifest.xml") -Value $manifest -Encodin
 
 Write-Host "Generating resources.pri..." -ForegroundColor Cyan
 
-$PriConfig = Join-Path $env:TEMP "priconfig-wingup.xml"
+# Use package directory for config to avoid temp path issues
+$PriConfig = Join-Path $PackageDir "priconfig.xml"
 
 & $makepri createconfig /cf $PriConfig /dq en-US /pv 10.0.0 /o
 if ($LASTEXITCODE -ne 0) { Write-Error "makepri createconfig failed."; exit 1 }
+
+# Verify config file was created
+if (-not (Test-Path $PriConfig)) { 
+    Write-Error "PRI config file not found at $PriConfig after createconfig"
+    exit 1 
+}
+Write-Host "  Config created: $PriConfig"
+
+# Small delay to ensure file system sync
+Start-Sleep -Milliseconds 500
 
 & $makepri new `
     /pr $PackageDir `
@@ -206,9 +217,7 @@ $alreadyTrusted = Get-ChildItem Cert:\LocalMachine\TrustedPeople -ErrorAction Si
                   Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
 
 if (-not $alreadyTrusted) {
-    $isAdmin = ([Security.Principal.WindowsPrincipal]
-                [Security.Principal.WindowsIdentity]::GetCurrent()
-               ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $isAdmin = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
     if ($isAdmin) {
         Write-Host "  Installing cert to LocalMachine\TrustedPeople..." -ForegroundColor DarkCyan
@@ -250,7 +259,9 @@ Write-Host "Signing MSIX..." -ForegroundColor Cyan
 & $signtool sign /fd SHA256 /a /f $CertPfx /p $CertPass $MsixOut
 if ($LASTEXITCODE -ne 0) { Write-Error "signtool sign failed."; exit 1 }
 
-Remove-Item $CertPfx -Force -ErrorAction SilentlyContinue
+# Give signtool time to release file handle before cleanup
+Start-Sleep -Milliseconds 500
+try { Remove-Item $CertPfx -Force -ErrorAction Stop } catch { }
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 

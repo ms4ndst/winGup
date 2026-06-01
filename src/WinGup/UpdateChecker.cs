@@ -25,7 +25,7 @@ public partial class UpdateChecker : IUpdateChecker
         new(@"\x1B\[[0-9;]*[a-zA-Z]", System.Text.RegularExpressions.RegexOptions.Compiled);
     private int _updateCount;
     private DateTime? _lastCheckTime;
-    private bool _isChecking;
+    private volatile bool _isChecking;
     private bool _isInstalling;
     private IReadOnlyList<string>? _lastInstallFailed;
     private bool _disposed;
@@ -82,11 +82,11 @@ public partial class UpdateChecker : IUpdateChecker
         bool includeUnknown = false,
         CancellationToken cancellationToken = default)
     {
-            if (_isChecking && !force)
-            {
-                _logger.LogInformation("Update check already in progress, skipping");
-                return _updateCount;
-            }
+        if (_isChecking && !force)
+        {
+            _logger.LogInformation("Update check already in progress, skipping");
+            return _updateCount;
+        }
 
         if (_configManager != null)
         {
@@ -97,12 +97,11 @@ public partial class UpdateChecker : IUpdateChecker
         _logger.LogDebug("Update check settings - includePinned: {IncludePinned}, includeUnknown: {IncludeUnknown}", includePinned, includeUnknown);
 
         _isChecking = true;
-                _logger.LogInformation("Starting update check");
+        _logger.LogInformation("Starting update check");
 
         try
         {
-            _availableUpdates.Clear();
-            _updateCount = 0;
+            var newUpdates = new List<UpdateInfo>();
 
             await RefreshPinnedPackagesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -116,15 +115,23 @@ public partial class UpdateChecker : IUpdateChecker
 
             if (_jsonSupported)
             {
-                var result = await TryCheckUpdatesJsonAsync(baseCommand, includePinned, includeUnknown, cancellationToken)
+                var result = await TryCheckUpdatesJsonAsync(baseCommand, newUpdates, includePinned, includeUnknown, cancellationToken)
                     .ConfigureAwait(false);
 
                 if (result.HasValue)
                 {
+                    _availableUpdates.Clear();
+                    _availableUpdates.AddRange(newUpdates);
+                    _updateCount = newUpdates.Count;
+
+                    if (_configManager != null)
+                    {
+                        _configManager.SetLastCheck(DateTime.Now);
+                    }
                     _lastCheckTime = DateTime.Now;
+                    _logger.LogInformation("Update check completed. Found {UpdateCount} updates.", _updateCount);
                     CheckCompleted?.Invoke(this, EventArgs.Empty);
-                    _isChecking = false;
-                    return result.Value;
+                    return _updateCount;
                 }
 
                 _jsonSupported = false;
@@ -151,16 +158,19 @@ public partial class UpdateChecker : IUpdateChecker
             if (process.ExitCode != 0)
             {
                 _logger.LogError("Winget update command failed with return code {ReturnCode}: {Error}", process.ExitCode, error);
-                _isChecking = false;
                 return 0;
             }
 
             _logger.LogDebug("Winget output length: {Length}, first 500 chars: {Output}", output.Length, output.Substring(0, Math.Min(500, output.Length)));
 
-            ParseWingetOutput(output.AsSpan(), includePinned, includeUnknown);
+            ParseWingetOutput(output.AsSpan(), newUpdates, includePinned, includeUnknown);
+
+            _availableUpdates.Clear();
+            _availableUpdates.AddRange(newUpdates);
+            _updateCount = newUpdates.Count;
 
             _logger.LogInformation("After parsing: Found {UpdateCount} updates", _updateCount);
-            
+
             if (_configManager != null)
             {
                 _configManager.SetLastCheck(DateTime.Now);
@@ -194,11 +204,8 @@ public partial class UpdateChecker : IUpdateChecker
             if (!includeUnknown) includeUnknown = _configManager.IncludeUnknownVersions;
         }
 
-        if (_availableUpdates.Count == 0)
-        {
-            await CheckUpdatesAsync(force: true, includePinned, includeUnknown, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await CheckUpdatesAsync(force: true, includePinned, includeUnknown, cancellationToken)
+            .ConfigureAwait(false);
 
         return _availableUpdates.AsReadOnly();
     }
@@ -215,11 +222,8 @@ public partial class UpdateChecker : IUpdateChecker
             if (!includeUnknown) includeUnknown = _configManager.IncludeUnknownVersions;
         }
 
-        if (_updateCount == 0)
-        {
-            await CheckUpdatesAsync(force: true, includePinned, includeUnknown, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await CheckUpdatesAsync(force: true, includePinned, includeUnknown, cancellationToken)
+            .ConfigureAwait(false);
 
         return _updateCount;
     }
@@ -291,28 +295,29 @@ public partial class UpdateChecker : IUpdateChecker
 
     private async Task<int?> TryCheckUpdatesJsonAsync(
         string[] baseCommand,
+        List<UpdateInfo> updates,
         bool includePinned,
         bool includeUnknown,
         CancellationToken cancellationToken)
     {
-        var commands = new[]
+        var commandArgs = new[]
         {
-            baseCommand.Concat(new[] { "--format", "json" }).ToArray(),
-            new[] { "winget", "update", "--format", "json" },
-            new[] { "winget", "upgrade", "--format", "json" },
-            new[] { "winget", "update", "--accept-source-agreements", "--include-unknown", "--include-pinned", "--source", "winget", "--format", "json" }
+            string.Join(" ", baseCommand) + " --format json",
+            "update --format json",
+            "upgrade --format json",
+            "update --accept-source-agreements --include-unknown --include-pinned --source winget --format json"
         };
 
-        foreach (var cmd in commands)
+        foreach (var args in commandArgs)
         {
             try
             {
-                _logger.LogDebug("Trying JSON command: {Command}", string.Join(" ", cmd));
+                _logger.LogDebug("Trying JSON command: winget {Arguments}", args);
 
                 var processStartInfo = new ProcessStartInfo
                 {
                     FileName = "winget",
-                    Arguments = string.Join(" ", cmd.Skip(1)),
+                    Arguments = args,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -327,26 +332,30 @@ public partial class UpdateChecker : IUpdateChecker
 
                 if (process.ExitCode == 0)
                 {
-                    return ParseWingetJson(output.AsSpan(), includePinned, includeUnknown);
+                    var count = ParseWingetJson(output.AsSpan(), updates, includePinned, includeUnknown);
+                    if (count.HasValue)
+                        return count.Value;
+
+                    // JSON parse failed, clear partial results and try next command
+                    updates.Clear();
                 }
 
-                    _logger.LogDebug("JSON command failed: {Command} with code {ReturnCode}", string.Join(" ", cmd), process.ExitCode);
+                _logger.LogDebug("JSON command failed: winget {Arguments} with code {ReturnCode}", args, process.ExitCode);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("JSON command exception: {Command}: {Exception}", string.Join(" ", cmd), ex);
+                _logger.LogWarning("JSON command exception: winget {Arguments}: {Exception}", args, ex);
+                updates.Clear();
             }
         }
 
         return null;
     }
 
-    private int ParseWingetJson(ReadOnlySpan<char> output, bool includePinned, bool includeUnknown)
+    private int? ParseWingetJson(ReadOnlySpan<char> output, List<UpdateInfo> updates, bool includePinned, bool includeUnknown)
     {
         try
         {
-            _availableUpdates.Clear();
-
             var outputString = output.ToString();
             using var document = JsonDocument.Parse(outputString);
             var root = document.RootElement;
@@ -357,7 +366,7 @@ public partial class UpdateChecker : IUpdateChecker
                 {
                     if (source.TryGetProperty("Packages", out var packages))
                     {
-                        ParsePackagesFromJson(packages, includePinned, includeUnknown);
+                        ParsePackagesFromJson(packages, updates, includePinned, includeUnknown);
                     }
                 }
             }
@@ -378,60 +387,64 @@ public partial class UpdateChecker : IUpdateChecker
                         if (!ShouldIncludePackage(id, currentVersion, availableVersion, includePinned, includeUnknown))
                             continue;
 
-                        _availableUpdates.Add(new UpdateInfo(
+                        updates.Add(new UpdateInfo(
                             name, id, currentVersion, availableVersion
                         ));
                     }
                 }
             }
 
-            _updateCount = _availableUpdates.Count;
-            _logger.LogInformation("Parsed winget JSON output, found {UpdateCount} updates", _updateCount);
-            if (_configManager != null)
-            {
-                _configManager.SetLastCheck(DateTime.Now);
-            }
-            _lastCheckTime = DateTime.Now;
-
-            return _updateCount;
+            _logger.LogInformation("Parsed winget JSON output, found {UpdateCount} updates", updates.Count);
+            return updates.Count;
         }
         catch (JsonException ex)
         {
             _logger.LogWarning("Failed to parse JSON: {Exception}", ex);
-            return 0;
+            return null;
         }
     }
 
-    private void ParsePackagesFromJson(JsonElement packages, bool includePinned, bool includeUnknown)
+    private void ParsePackagesFromJson(JsonElement packages, List<UpdateInfo> updates, bool includePinned, bool includeUnknown)
     {
-        if (packages.ValueKind != JsonValueKind.Object)
+        if (packages.ValueKind != JsonValueKind.Array)
             return;
 
-        foreach (var pkg in packages.EnumerateObject())
+        foreach (var pkg in packages.EnumerateArray())
         {
-            var pkgId = pkg.Name;
-            var pkgInfo = pkg.Value;
+            // winget JSON uses PackageIdentifier; fall back to Id for older formats
+            var pkgId = pkg.TryGetProperty("PackageIdentifier", out var pid) ? pid.GetString() ?? "" :
+                        pkg.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "";
 
-            var currentVersion = pkgInfo.TryGetProperty("Version", out var v) ? v.GetString() ?? "Unknown" : "Unknown";
-            var availableVersion = pkgInfo.TryGetProperty("AvailableVersion", out var av) ? av.GetString() ?? "Unknown" : "Unknown";
-            var name = pkgInfo.TryGetProperty("Name", out var n) ? n.GetString() ?? pkgId : pkgId;
+            if (string.IsNullOrEmpty(pkgId))
+                continue;
+
+            var name = pkg.TryGetProperty("Name", out var n) ? n.GetString() ?? pkgId : pkgId;
+            var currentVersion = pkg.TryGetProperty("Version", out var v) ? v.GetString() ?? "Unknown" : "Unknown";
+
+            // winget may use singular AvailableVersion or plural AvailableVersions array
+            var availableVersion = "Unknown";
+            if (pkg.TryGetProperty("AvailableVersion", out var av))
+                availableVersion = av.GetString() ?? "Unknown";
+            else if (pkg.TryGetProperty("AvailableVersions", out var avs) && avs.ValueKind == JsonValueKind.Array)
+            {
+                var first = avs.EnumerateArray().FirstOrDefault();
+                if (first.ValueKind == JsonValueKind.String)
+                    availableVersion = first.GetString() ?? "Unknown";
+            }
 
             if (!ShouldIncludePackage(pkgId, currentVersion, availableVersion, includePinned, includeUnknown))
                 continue;
 
-            _availableUpdates.Add(new UpdateInfo(name, pkgId, currentVersion, availableVersion));
+            updates.Add(new UpdateInfo(name, pkgId, currentVersion, availableVersion));
         }
     }
 
-    private void ParseWingetOutput(ReadOnlySpan<char> output, bool includePinned, bool includeUnknown)
+    private void ParseWingetOutput(ReadOnlySpan<char> output, List<UpdateInfo> updates, bool includePinned, bool includeUnknown)
     {
-        RefreshPinnedPackages(); // Sync version for text parsing
-
         var outputString = output.ToString();
         if (outputString.Contains("No updates found.") || outputString.Contains("No available upgrades."))
         {
             _logger.LogInformation("No updates available according to winget");
-            _updateCount = 0;
             return;
         }
 
@@ -455,20 +468,25 @@ public partial class UpdateChecker : IUpdateChecker
         foreach (var section in sections)
         {
             _logger.LogDebug("Processing section with {LineCount} lines", section.Length);
-            ProcessOutputSection(section, includePinned, includeUnknown);
+            ProcessOutputSection(section, updates, includePinned, includeUnknown);
         }
 
-        _updateCount = _availableUpdates.Count;
-        _logger.LogInformation("Parsed winget text output, found {UpdateCount} updates", _updateCount);
+        _logger.LogInformation("Parsed winget text output, found {UpdateCount} updates", updates.Count);
     }
 
     private bool ShouldIncludePackage(string id, string currentVersion, string availableVersion,
         bool includePinned, bool includeUnknown)
     {
-        if ((currentVersion == "Unknown" || string.IsNullOrEmpty(currentVersion)) && !includeUnknown)
+        if (string.IsNullOrEmpty(currentVersion) || string.IsNullOrEmpty(availableVersion))
             return false;
 
-        if (!IsValidVersionComparison(currentVersion, availableVersion))
+        bool hasUnknown = currentVersion.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ||
+                          availableVersion.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+
+        if (hasUnknown && !includeUnknown)
+            return false;
+
+        if (!hasUnknown && !IsValidVersionComparison(currentVersion, availableVersion))
             return false;
 
         if (!includePinned && IsPackagePinned(id))
@@ -716,7 +734,7 @@ public partial class UpdateChecker : IUpdateChecker
     private static readonly System.Text.RegularExpressions.Regex ColumnSplitter =
         new(@"\s{2,}", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private void ProcessOutputSection(string[] lines, bool includePinned, bool includeUnknown)
+    private void ProcessOutputSection(string[] lines, List<UpdateInfo> updates, bool includePinned, bool includeUnknown)
     {
         foreach (var line in lines)
         {
@@ -759,7 +777,7 @@ public partial class UpdateChecker : IUpdateChecker
                     !string.IsNullOrEmpty(version) && !string.IsNullOrEmpty(available) &&
                     version != available)
                 {
-                    _availableUpdates.Add(new UpdateInfo(name, idStr, version, available));
+                    updates.Add(new UpdateInfo(name, idStr, version, available));
                     _logger.LogInformation("Added update: {Name} ({Id}) {Version} -> {Available}", name, idStr, version, available);
                 }
             }

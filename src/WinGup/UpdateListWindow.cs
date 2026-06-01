@@ -209,6 +209,7 @@ public class UpdateListWindow : Form
     /// <summary>Reloads updates from the service.</summary>
     public void Reload()
     {
+        _loadTriggered = false;
         if (_ipcClient is not null)
             _ = LoadUpdatesAsync();
     }
@@ -297,6 +298,7 @@ public class UpdateListWindow : Form
 
     private void RefreshButton_Click(object? sender, EventArgs e)
     {
+        _loadTriggered = false;
         if (_ipcClient is not null)
             _ = LoadUpdatesAsync();
     }

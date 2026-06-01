@@ -61,7 +61,7 @@ winget install Microsoft.WindowsSDK.10.0.22621
 
 **Build:**
 ```powershell
-# Default version (1.0.0)
+# Default version (1.0.4)
 .\build-installer.ps1
 
 # Specify version
@@ -73,7 +73,7 @@ On first run the script creates a self-signed certificate (`CN=winGup Dev`). Tru
 **Install / uninstall:**
 ```powershell
 # Install
-Add-AppxPackage -Path "dist\winGup-1.0.0.msix"
+Add-AppxPackage -Path "dist\winGup-1.0.4.msix"
 
 # Uninstall (removes all files and registry entries cleanly)
 Get-AppxPackage MagnusSandstrom.winGup | Remove-AppxPackage

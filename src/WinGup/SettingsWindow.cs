@@ -9,6 +9,7 @@ namespace WinGup;
 /// </summary>
 public class SettingsWindow : Form
 {
+    private const string StartupTaskId = "WinGupStartupTask";
     private const string StartupRegKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string StartupValueName = "winGup";
 
@@ -126,8 +127,7 @@ public class SettingsWindow : Form
         {
             Text = "Run on Windows Startup",
             Location = new System.Drawing.Point(controlX, y),
-            Size = new System.Drawing.Size(180, 20),
-            Checked = GetStartupEnabled()
+            Size = new System.Drawing.Size(180, 20)
         };
         Controls.Add(_startupCheckBox);
         y += 36;
@@ -164,15 +164,18 @@ public class SettingsWindow : Form
     {
         try
         {
+            var startupEnabled = await GetStartupEnabledAsync().ConfigureAwait(false);
             var response = await _ipcClient.SendMessageAsync("get_settings").ConfigureAwait(false);
-            if (string.IsNullOrEmpty(response)) return;
-
-            var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            using var doc = System.Text.Json.JsonDocument.Parse(response);
-            var root = doc.RootElement;
 
             InvokeOnUiThread(() =>
             {
+                _startupCheckBox.Checked = startupEnabled;
+
+                if (string.IsNullOrEmpty(response)) return;
+
+                using var doc = System.Text.Json.JsonDocument.Parse(response);
+                var root = doc.RootElement;
+
                 if (root.TryGetProperty("morning_check", out var mc) && mc.GetString() is { } mt)
                     if (TimeOnly.TryParse(mt, out var t))
                         _morningTimePicker.Value = DateTime.Today.Add(t.ToTimeSpan());
@@ -194,54 +197,81 @@ public class SettingsWindow : Form
         }
     }
 
-    private void SaveButton_Click(object? sender, EventArgs e)
+    private async void SaveButton_Click(object? sender, EventArgs e)
     {
-        SetStartupEnabled(_startupCheckBox.Checked);
+        try
+        {
+            await SetStartupEnabledAsync(_startupCheckBox.Checked);
 
-        _ = Task.Run(async () =>
+            var config = new
+            {
+                morning_check = _morningTimePicker.Value.ToString("HH:mm"),
+                afternoon_check = _afternoonTimePicker.Value.ToString("HH:mm"),
+                notify_on_updates = _notifyCheckBox.Checked,
+                auto_check = _autoCheckCheckBox.Checked,
+                include_pinned_updates = _pinnedCheckBox.Checked,
+                include_unknown_versions = _unknownVersionsCheckBox.Checked
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(config);
+            await _ipcClient.SendMessageAsync("save_settings", json).ConfigureAwait(false);
+            _logger.LogInformation("Settings saved");
+
+            InvokeOnUiThread(Close);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save settings");
+            MessageBox.Show("Failed to save settings: " + ex.Message, "Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static bool IsPackaged()
+    {
+        try { _ = Windows.ApplicationModel.Package.Current.Id; return true; }
+        catch { return false; }
+    }
+
+    private static async Task<bool> GetStartupEnabledAsync()
+    {
+        if (IsPackaged())
         {
             try
             {
-                var config = new
-                {
-                    morning_check = _morningTimePicker.Value.ToString("HH:mm"),
-                    afternoon_check = _afternoonTimePicker.Value.ToString("HH:mm"),
-                    notify_on_updates = _notifyCheckBox.Checked,
-                    auto_check = _autoCheckCheckBox.Checked,
-                    include_pinned_updates = _pinnedCheckBox.Checked,
-                    include_unknown_versions = _unknownVersionsCheckBox.Checked
-                };
-
-                var json = System.Text.Json.JsonSerializer.Serialize(config);
-                await _ipcClient.SendMessageAsync("save_settings", json).ConfigureAwait(false);
-                _logger.LogInformation("Settings saved");
-
-                InvokeOnUiThread(Close);
+                var task = await Windows.ApplicationModel.StartupTask.GetAsync(StartupTaskId);
+                return task.State is Windows.ApplicationModel.StartupTaskState.Enabled
+                    or Windows.ApplicationModel.StartupTaskState.EnabledByPolicy;
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save settings");
-                MessageBox.Show("Failed to save settings: " + ex.Message, "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        });
-    }
+            catch { return false; }
+        }
 
-    private static bool GetStartupEnabled()
-    {
         using var key = Registry.CurrentUser.OpenSubKey(StartupRegKey, writable: false);
         return key?.GetValue(StartupValueName) is not null;
     }
 
-    private static void SetStartupEnabled(bool enabled)
+    private static async Task SetStartupEnabledAsync(bool enabled)
     {
+        if (IsPackaged())
+        {
+            try
+            {
+                var task = await Windows.ApplicationModel.StartupTask.GetAsync(StartupTaskId);
+                if (enabled)
+                    await task.RequestEnableAsync();
+                else
+                    task.Disable();
+                return;
+            }
+            catch { }
+        }
+
         using var key = Registry.CurrentUser.OpenSubKey(StartupRegKey, writable: true);
         if (key is null) return;
-
         if (enabled)
         {
             var exePath = Environment.ProcessPath ?? Application.ExecutablePath;
-            key.SetValue(StartupValueName, $"\"{exePath}\" --standalone");
+            key.SetValue(StartupValueName, $"\"{exePath}\" standalone");
         }
         else
         {

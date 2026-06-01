@@ -24,7 +24,7 @@ public class UpdateCheckerTests
         // but we can verify it doesn't throw
         var result = await checker.CheckUpdatesAsync();
 
-        // Assert
-        result.Should().Be(0);
+        // Assert - result is 0 if winget isn't installed, or >= 0 if it is
+        result.Should().BeGreaterThanOrEqualTo(0);
     }
 }

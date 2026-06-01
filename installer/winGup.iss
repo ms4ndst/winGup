@@ -1,5 +1,5 @@
 #define AppName "winGup"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.4"
 #define AppPublisher "Magnus Sandstrom"
 #define AppURL "https://github.com/ms4ndst/winGup"
 #define AppExeName "winGup.exe"
@@ -43,11 +43,11 @@ Name: "{userstartmenu}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   ValueType: string; ValueName: "{#AppName}"; \
-  ValueData: """{app}\{#AppExeName}"" --standalone"; \
+  ValueData: """{app}\{#AppExeName}"" standalone"; \
   Flags: uninsdeletevalue; Tasks: startupentry
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Parameters: "--standalone"; \
+Filename: "{app}\{#AppExeName}"; Parameters: "standalone"; \
   Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]

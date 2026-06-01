@@ -18,21 +18,23 @@ public class Program
     {
         try
         {
-            if (args.Length == 0 || args[0] == "standalone")
+            if (args.Length == 0)
             {
                 return RunStandaloneMode();
             }
 
-            var command = args[0].ToLowerInvariant();
+            // Strip leading dashes from argument
+            var command = args[0].TrimStart('-').ToLowerInvariant();
             return command switch
             {
+                "standalone" => RunStandaloneMode(),
                 "install" => InstallService(),
                 "uninstall" => UninstallService(),
                 "start" => StartService(),
                 "stop" => StopService(),
                 "restart" => RestartService(),
                 "service" => RunServiceOnly(),
-                "ui" => RunUiOnly(),
+                "ui" => RunStandaloneMode(),
                 "debug" => RunDebugMode(),
                 "add-autostart" => AutostartSetup(install: true),
                 "remove-autostart" => AutostartSetup(install: false),
@@ -302,12 +304,12 @@ public class Program
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
                 @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true)!;
 
-            var appName = "WingetUpdater";
+            const string appName = "winGup";
 
             if (install)
             {
                 var exePath = Environment.ProcessPath ?? "winGup.exe";
-                key.SetValue(appName, $"\"{exePath}\" --ui");
+                key.SetValue(appName, $"\"{exePath}\" standalone");
                 Console.WriteLine($"Added {appName} to autostart");
             }
             else
