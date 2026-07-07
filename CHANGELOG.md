@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.5] - 2026-07-07
+
+### Fixed
+- Update list window: install/download output pane no longer slides under the bottom button bar. Corrected the WinForms dock add-order so the Fill container is added before the bottom-docked button panel.
+
 ## [Unreleased]
 
 ### Added

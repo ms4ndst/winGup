@@ -110,8 +110,6 @@ public class UpdateListWindow : Form
         buttonPanel.Controls.AddRange(new Control[]
             { _refreshButton, _updateButton, _updateAllButton, _pinButton, _statusLabel, _closeButton });
 
-        Controls.Add(buttonPanel);
-
         // --- SplitContainer fills the remaining space ---
         var split = new SplitContainer
         {
@@ -169,7 +167,11 @@ public class UpdateListWindow : Form
         split.Panel2.Controls.Add(_outputBox);
         split.Panel2.Controls.Add(outputLabel);
 
+        // Docking is laid out last-added-first: add the Fill control BEFORE the
+        // bottom bar so the button panel claims its 36px and the output pane
+        // fills only the space above it (never underneath it).
         Controls.Add(split);
+        Controls.Add(buttonPanel);
 
         // Apply Catppuccin Mocha theme
         CatppuccinTheme.ApplyToForm(this);

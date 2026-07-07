@@ -24,7 +24,7 @@
     .\build-installer.ps1 -Version 1.2.0
 #>
 param(
-    [string]$Version = "1.0.4"
+    [string]$Version = "1.0.5"
 )
 
 Set-StrictMode -Version Latest
